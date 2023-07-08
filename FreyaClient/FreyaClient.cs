@@ -4,6 +4,7 @@ using System.Net.Sockets;
 
 
 public class FreyaClient {
+    public TcpClient node;
     private string address;
     private int port;
 
@@ -29,7 +30,7 @@ public class FreyaClient {
     public void Connect() {
         try
         {
-            using TcpClient node = new TcpClient(this.address, this.port);
+            this.node = new TcpClient(this.address, this.port);
         }
         catch (Exception e)
         {
@@ -39,5 +40,10 @@ public class FreyaClient {
         {
 
         }
+    }
+
+    public void Disconnect() {
+        this.node.Close();
+        this.node = null;
     }
 }

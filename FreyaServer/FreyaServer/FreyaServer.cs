@@ -10,9 +10,11 @@ public class FreyaServer
     private string address;
     private int port;
     private TcpListener listener;
+    private List<TcpClient> client_list;
+    private List<Thread> threads;
 
     private void Announcment(string msg) {
-        Console.ForegroundColor = ConsoleColor.Magenta;
+        Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine(msg);
         Console.ResetColor();
     }
@@ -26,25 +28,30 @@ public class FreyaServer
     public FreyaServer(string address, Int32 port) {
         this.address = address;
         this.port = port;
-        this.listener = null;
+        this.listener = new TcpListener(IPAddress.Parse(address), this.port);
+        this.client_list = new List<TcpClient>();
+        this.threads = new List<Thread>();
     }
-    
-    public void Host() {
+
+    private void HandleClientConnection() {
+        TcpClient client = this.client_list.Last();
+    }
+
+    private void RealHost() {
         try
         {
-            // Setup
-            IPAddress ip = IPAddress.Parse(address);
-            this.listener = new TcpListener(ip, this.port);
-
             // Starting
             this.listener.Start();
             this.Announcment($"Server is listening on {this.address}:{this.port}...");
 
             // Connection Loop
-            while (true)
+            while (this.listener.Server.IsBound)
             {
-                Socket newConnection = this.listener.AcceptSocket();
-                Console.WriteLine("Connection accepted!");
+                using TcpClient client = this.listener.AcceptTcpClient();
+                this.client_list.Add(client);
+                Thread t = new Thread(new ThreadStart(this.HandleClientConnection));
+                this.threads.Add(t);
+                t.Start();
             }
         }
         catch (SocketException e)
@@ -55,5 +62,14 @@ public class FreyaServer
         {
             this.listener.Stop();
         }
-    }   
+    }
+
+    public void Host() {
+        Thread t = new Thread(() => this.RealHost());
+        t.Start();
+    }
+
+    public void Close() {
+        this.listener.Stop();
+    }
 }
