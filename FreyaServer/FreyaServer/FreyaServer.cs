@@ -1,75 +1,179 @@
 ﻿using System;
-using System.IO;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
+using System.Threading;
 
-
-public class FreyaServer
+struct WriteData
 {
-    private string address;
-    private int port;
+    public int id;
+    public string data;
+
+    public WriteData(int id, string data)
+    {
+        this.id = id;
+        this.data = data;
+    }
+}
+
+class ServerSettings
+{
+    public bool debug = true;
+    public IPEndPoint endpoint = new IPEndPoint(IPAddress.Any, 8888);
+
+    public ServerSettings() { }
+}
+
+class FreyaServer
+{
     private TcpListener listener;
-    private List<TcpClient> client_list;
-    private List<Thread> threads;
+    private List<TcpClient> clients = new List<TcpClient>();
+    private List<Thread> threads = new List<Thread>();
+    private bool hostOpen = false;
+    private BufferSerializer bufferSerializer = new BufferSerializer();
+    private List<WriteData> write_queue = new List<WriteData>();
 
-    private void Announcment(string msg) {
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine(msg);
-        Console.ResetColor();
+    public ServerSettings serverSettings = new ServerSettings();
+
+    public FreyaServer(string ipAddress, int port)
+    {
+        this.listener = new TcpListener(IPAddress.Parse(ipAddress), port);
+        this.serverSettings.endpoint = new IPEndPoint(IPAddress.Parse(ipAddress), port);
     }
 
-    private void ExceptionError(Exception msg) {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine(msg);
-        Console.ResetColor();
+    public FreyaServer(IPEndPoint endpoint)
+    {
+        this.listener = new TcpListener(endpoint);
+        this.serverSettings.endpoint = endpoint;
     }
 
-    public FreyaServer(string address, Int32 port) {
-        this.address = address;
-        this.port = port;
-        this.listener = new TcpListener(IPAddress.Parse(address), this.port);
-        this.client_list = new List<TcpClient>();
-        this.threads = new List<Thread>();
+    // Buffer Methods
+    public void AddReadCallback(int identifier, BufferSerializer.Callback callback)
+    {
+        this.bufferSerializer.AddCallback(identifier, callback);
     }
 
-    private void HandleClientConnection() {
-        TcpClient client = this.client_list.Last();
+    public void WriteBuffer(int identifier, string data)
+    {
+        this.write_queue.Add(new WriteData(identifier, data));
     }
 
-    private void RealHost() {
+    public void SetBufferIdentifierSize(int sizeInBytes)
+    {
+        this.bufferSerializer.identifier_byte_size = sizeInBytes;
+    }
+
+    public void SetBufferDataSize(int sizeInBytes)
+    {
+        this.bufferSerializer.buffer_size = sizeInBytes;
+    }
+    ////////////////////////////////////////////////////////////
+
+    public void Start()
+    {
         try
         {
-            // Starting
-            this.listener.Start();
-            this.Announcment($"Server is listening on {this.address}:{this.port}...");
+            listener.Start();
+            this.hostOpen = true;
 
-            // Connection Loop
-            while (this.listener.Server.IsBound)
+            Thread listenerThread = new Thread(new ThreadStart(ListenForConnections));
+            listenerThread.Start();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error: " + ex.Message);
+        }
+    }
+
+    public void Shutdown()
+    {
+        // Close client streams & connections
+        foreach (Thread thread in threads)
+        {
+            thread.Join();
+        }
+
+        foreach (TcpClient client in clients)
+        {
+            if (client.Available != 0) client.GetStream().Close();
+            if (client != null) client.Close();
+        }
+
+        Debug(Debugger.Color.Info, "Server is shutting down...");
+        listener.Stop();
+    }
+
+    private void Debug(Debugger.Color color, string message)
+    {
+        Debugger.Say(this.serverSettings.debug, color, message);
+    }
+
+    private void ListenForConnections()
+    {
+        Debug(Debugger.Color.Info, $"Server listening on {this.serverSettings.endpoint.ToString()}");
+        try
+        {
+            while (this.hostOpen)
             {
-                using TcpClient client = this.listener.AcceptTcpClient();
-                this.client_list.Add(client);
-                Thread t = new Thread(new ThreadStart(this.HandleClientConnection));
-                this.threads.Add(t);
-                t.Start();
+                TcpClient client = listener.AcceptTcpClient();
+                var clientThread = new Thread(() => HandleClient(client));
+                clients.Add(client); // Add client to the list
+                threads.Add(clientThread); // Add client thread to the list
+                clientThread.Start();
             }
         }
-        catch (SocketException e)
+        catch (SocketException ex) { }
+    }
+
+    private void RemoveClient(TcpClient client)
+    {
+        clients.Remove(client);
+        threads.RemoveAll(t => t.Name == client.Client.RemoteEndPoint.ToString()); // Remove client thread
+        client.Close();
+    }
+
+    private bool IsClientConnected(TcpClient client)
+    {
+        try
         {
-            this.ExceptionError(e);
+            if (client.Client.Poll(0, SelectMode.SelectRead))
+            {
+                byte[] buffer = new byte[1];
+                if (client.Client.Receive(buffer, SocketFlags.Peek) == 0)
+                    return false;
+            }
+
+            return true;
         }
-        finally
+        catch (SocketException)
         {
-            this.listener.Stop();
+            return false;
         }
     }
 
-    public void Host() {
-        Thread t = new Thread(() => this.RealHost());
-        t.Start();
-    }
+    private void HandleClient(TcpClient client)
+    {
+        string clientName = $"Client({client.Client.RemoteEndPoint}) - {clients.Count}";
+        Debug(Debugger.Color.Success, $"{clientName} Connected!");
 
-    public void Close() {
-        this.listener.Stop();
+        NetworkStream stream = client.GetStream();
+        while (this.hostOpen && IsClientConnected(client))
+        {
+            if (client.Available > 0)
+            {
+                try
+                {
+                    this.bufferSerializer.ReadBuffer(stream);
+                }
+                catch (Exception e)
+                {
+                    Debug(Debugger.Color.Info, $"{clientName} disconnected!");
+                    RemoveClient(client);
+                    break;
+                }
+            }
+        }
+        Debug(Debugger.Color.Info, $"{clientName} disconnected!");
+        RemoveClient(client);
     }
 }
