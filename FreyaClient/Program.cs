@@ -8,6 +8,10 @@ class Program
         int port = 8888;
 
         FreyaClient client = new FreyaClient(ipAddress, port);
+        client.AddReadCallback(0, (data, socket) => {
+            Console.WriteLine("Server: " + data); 
+        });
+
         client.Connect();
 
         string input;

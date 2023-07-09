@@ -7,7 +7,7 @@ using System.Net.Sockets;
 
 class BufferSerializer
 {
-    public delegate void Callback(string data);
+    public delegate void Callback(string data, Socket socket);
 
     public int identifier_byte_size = 1;
     public int buffer_size = 512;
@@ -25,7 +25,7 @@ class BufferSerializer
         string identifier = Encoding.UTF8.GetString(identifier_buffer);
 
         bool result = callbacks.TryGetValue(identifier, out Callback callback);
-        if (result) callback.Invoke(data);
+        if (result) callback.Invoke(data, stream.Socket);
         else Debugger.Say(true, Debugger.Color.Error, $"Callback not found for identifier - {identifier}");
     }
 

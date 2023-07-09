@@ -10,12 +10,13 @@ class Program
         FreyaServer server = new FreyaServer(ipAddress, port);
         server.Start();
 
-        server.AddReadCallback(0, (data) => {
-            Console.WriteLine("[0] Text Recieved: " + data);
+        server.AddReadCallback(0, (data, socket) => {
+            Console.WriteLine("[0] Text Recieved: " + data + ", From: " + socket.RemoteEndPoint);
+            server.WriteBuffer(0, "Message Recieved!");
         });
 
-        server.AddReadCallback(1, (data) => {
-            Console.WriteLine("[1] Text Recieved: " + data);
+        server.AddReadCallback(1, (data, socket) => {
+            Console.WriteLine("[1] Text Recieved: " + data + ", From: " + socket.RemoteEndPoint);
         });
 
         Console.ReadLine();

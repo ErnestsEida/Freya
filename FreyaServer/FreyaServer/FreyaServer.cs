@@ -31,7 +31,6 @@ class FreyaServer
     private List<Thread> threads = new List<Thread>();
     private bool hostOpen = false;
     private BufferSerializer bufferSerializer = new BufferSerializer();
-    private List<WriteData> write_queue = new List<WriteData>();
 
     public ServerSettings serverSettings = new ServerSettings();
 
@@ -55,7 +54,14 @@ class FreyaServer
 
     public void WriteBuffer(int identifier, string data)
     {
-        this.write_queue.Add(new WriteData(identifier, data));
+        foreach (TcpClient client in clients) {
+            NetworkStream stream = client.GetStream();
+            this.bufferSerializer.WriteBuffer(stream, identifier, data);
+        }
+    }
+
+    public void WriteBufferDirect(Socket socket, int identifier, string data) {
+        this.bufferSerializer.WriteBuffer(new NetworkStream(socket), identifier, data);
     }
 
     public void SetBufferIdentifierSize(int sizeInBytes)
